@@ -1,0 +1,21 @@
+name: pdf-bot
+services:
+  - name: pdf-bot
+    type: web
+    docker:
+      dockerfile: Dockerfile
+    ports:
+      - port: 8000
+        protocol: http
+    health_checks:
+      - path: /health
+        port: 8000
+    env:
+      - key: BOT_TOKEN
+        value: "YOUR_BOT_TOKEN_HERE"
+      - key: PORT
+        value: "8000"
+    regions:
+      - fra
+    instance_types:
+      - eco
