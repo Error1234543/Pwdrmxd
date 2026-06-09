@@ -331,4 +331,415 @@ function finishQuiz(){{
   let cor=0,wrg=0,skp=0;
   for(let i=0;i<questions.length;i++){{const a=userAns[i];if(a===-1)skp++;else if(a===questions[i].ans)cor++;else wrg++;}}
   const pct=Math.round(cor/questions.length*100);
-  const grades=[[90,'🏆 Excellent!','Outstanding!'],[75,'🎯 Great!'
+  const grades=[[90,'🏆 Excellent!','Outstanding!'],[75,'🎯 Great!','Well done!'],[60,'👍 Good','Keep practicing!'],[40,'📖 Fair','Review topics.'],[0,'💪 Keep Going!','Practice more!']];
+  const [,gt,gm]=grades.find(([m])=>pct>=m);
+  document.getElementById('quiz-panel').style.display='none';
+  document.getElementById('score-card').style.display='block';
+  document.getElementById('score-pct').textContent=pct+'%';
+  document.getElementById('grade-txt').textContent=gt;
+  document.getElementById('grade-msg').textContent=gm;
+  document.getElementById('s-cor').textContent=cor;
+  document.getElementById('s-wrg').textContent=wrg;
+  document.getElementById('s-skp').textContent=skp;
+  const c=2*Math.PI*50,fill=pct/100*c;
+  const ring=document.getElementById('ring-fill');
+  ring.style.stroke=pct>=75?'url(#grad)':pct>=50?'var(--accent2)':'var(--danger)';
+  setTimeout(()=>ring.style.strokeDasharray=fill+' '+c,100);
+  document.getElementById('score-card').scrollIntoView({{behavior:'smooth'}});
+}}
+</script>
+</body>
+</html>"""
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  OWNER COMMANDS — /adduser /removeuser /users
+# ══════════════════════════════════════════════════════════════════════════════
+async def cmd_adduser(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    uid = update.effective_user.id
+    if not is_owner(uid):
+        await update.message.reply_text("❌ Sirf owner use kar sakta hai."); return
+    if not ctx.args:
+        await update.message.reply_text("Usage: `/adduser 123456789`", parse_mode=ParseMode.MARKDOWN); return
+    try:
+        new_uid = int(ctx.args[0])
+        users = load_auth_users()
+        if new_uid in OWNER_IDS:
+            await update.message.reply_text("⚠️ Yeh pehle se owner hai!"); return
+        users.add(new_uid)
+        save_auth_users(users)
+        await update.message.reply_text(f"✅ User `{new_uid}` add kar diya!", parse_mode=ParseMode.MARKDOWN)
+    except ValueError:
+        await update.message.reply_text("❌ Valid user ID do.")
+
+async def cmd_removeuser(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    uid = update.effective_user.id
+    if not is_owner(uid):
+        await update.message.reply_text("❌ Sirf owner use kar sakta hai."); return
+    if not ctx.args:
+        await update.message.reply_text("Usage: `/removeuser 123456789`", parse_mode=ParseMode.MARKDOWN); return
+    try:
+        rem_uid = int(ctx.args[0])
+        if rem_uid in OWNER_IDS:
+            await update.message.reply_text("❌ Owner ko remove nahi kar sakte!"); return
+        users = load_auth_users()
+        if rem_uid not in users:
+            await update.message.reply_text("⚠️ Yeh user list mein nahi hai."); return
+        users.discard(rem_uid)
+        save_auth_users(users)
+        await update.message.reply_text(f"✅ User `{rem_uid}` remove kar diya!", parse_mode=ParseMode.MARKDOWN)
+    except ValueError:
+        await update.message.reply_text("❌ Valid user ID do.")
+
+async def cmd_users(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    uid = update.effective_user.id
+    if not is_owner(uid):
+        await update.message.reply_text("❌ Sirf owner dekh sakta hai."); return
+    users = load_auth_users()
+    owner_list = "\n".join(f"👑 `{o}` (Owner)" for o in OWNER_IDS)
+    auth_list  = "\n".join(f"✅ `{u}`" for u in users) if users else "_Koi nahi_"
+    await update.message.reply_text(
+        f"*👥 Authorized Users*\n\n*Owners:*\n{owner_list}\n\n*Auth Users:*\n{auth_list}",
+        parse_mode=ParseMode.MARKDOWN)
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  /start
+# ══════════════════════════════════════════════════════════════════════════════
+async def start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    uid = update.effective_user.id
+    if not is_authorized(uid):
+        await update.message.reply_text("❌ Aap authorized nahi hain.\n\nOwner se access lo."); return
+
+    resume = load_resume()
+    keyboard = [
+        [InlineKeyboardButton("📥 PDF Downloader", callback_data="mode_download")],
+        [
+            InlineKeyboardButton("📊 Quiz Poll",  callback_data="mode_quiz_poll"),
+            InlineKeyboardButton("🌐 Quiz HTML",  callback_data="mode_quiz_html"),
+        ],
+    ]
+    if str(uid) in resume:
+        idx   = resume[str(uid)].get("current_index",0)
+        total = len(resume[str(uid)].get("entries",[]))
+        keyboard.append([InlineKeyboardButton(
+            f"▶️ Resume Download (#{idx+1}, {total-idx} left)", callback_data="resume")])
+
+    role = "👑 Owner" if is_owner(uid) else "✅ Auth User"
+    await update.message.reply_text(
+        f"👋 *SONIC Bot* — {role}\n\nKya karna hai?",
+        parse_mode=ParseMode.MARKDOWN,
+        reply_markup=InlineKeyboardMarkup(keyboard))
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  BUTTON HANDLER
+# ══════════════════════════════════════════════════════════════════════════════
+async def button_handler(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    uid   = query.from_user.id
+    if not is_authorized(uid):
+        await query.answer("Unauthorized", show_alert=True); return
+    await query.answer()
+
+    if query.data == "mode_download":
+        user_mode[uid] = "download"
+        user_sessions.pop(uid, None)
+        await query.edit_message_text(
+            "📥 *PDF Downloader Mode*\n\nText file bhejo (PDF links).\n\n*Format:*\n`File Name:https://link.pdf`",
+            parse_mode=ParseMode.MARKDOWN)
+
+    elif query.data == "mode_quiz_poll":
+        user_mode[uid] = "quiz_poll"
+        mcq_buffer.pop(uid, None)
+        await query.edit_message_text(
+            "📊 *Quiz Poll Mode*\n\n"
+            "MCQ paste karo — Telegram Quiz Polls banega.\n\n"
+            "*Format:*\n`Q1. Question`\n`(1) A`\n`(2) B`\n`(3) C`\n`(4) D`\n`ANS: 2`\n\n"
+            "💡 _Bahut saare MCQ hain? Multiple messages mein paste karo, phir /done_",
+            parse_mode=ParseMode.MARKDOWN)
+
+    elif query.data == "mode_quiz_html":
+        user_mode[uid] = "quiz_html"
+        mcq_buffer.pop(uid, None)
+        user_sessions[uid] = {"waiting_title": True}
+        await query.edit_message_text(
+            "🌐 *Quiz HTML Mode*\n\n"
+            "Pehle *quiz ka naam* type karo 👇\n\n"
+            "_Jaise: Motion DPP 07 | Biology Ch-3_",
+            parse_mode=ParseMode.MARKDOWN)
+
+    elif query.data == "resume":
+        resume = load_resume()
+        if str(uid) in resume:
+            sess = resume[str(uid)]
+            user_sessions[uid] = sess
+            user_mode[uid] = "download"
+            start_idx = sess.get("current_index",0)
+            total     = len(sess.get("entries",[]))
+            await query.edit_message_text(
+                f"▶️ *Resuming from #{start_idx+1}*\n📄 Remaining: {total-start_idx} files",
+                parse_mode=ParseMode.MARKDOWN)
+            task = asyncio.create_task(run_downloads(uid,ctx,query.message.chat_id,start_idx))
+            active_tasks[uid] = task
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  /done — finalize MCQ buffer → generate HTML or polls
+# ══════════════════════════════════════════════════════════════════════════════
+async def cmd_done(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    uid  = update.effective_user.id
+    if not is_authorized(uid): return
+    mode = user_mode.get(uid)
+
+    if mode not in ("quiz_html","quiz_poll") or uid not in mcq_buffer:
+        await update.message.reply_text("⚠️ Pehle Quiz mode choose karo aur MCQ paste karo."); return
+
+    buf   = mcq_buffer.get(uid, {})
+    texts = buf.get("chunks", [])
+    title = buf.get("title", "Quiz")
+
+    if not texts:
+        await update.message.reply_text("⚠️ Koi MCQ nahi mila buffer mein."); return
+
+    combined = "\n".join(texts)
+    mcq_buffer.pop(uid, None)
+
+    if mode == "quiz_html":
+        await handle_quiz_html(update, ctx, combined, title)
+    elif mode == "quiz_poll":
+        await handle_quiz_poll(update, ctx, combined)
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  DOCUMENT HANDLER
+# ══════════════════════════════════════════════════════════════════════════════
+async def handle_document(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    uid = update.effective_user.id
+    if not is_authorized(uid): return
+    doc = update.message.document
+    if not doc: return
+    if not (doc.file_name.endswith(".txt") or "text" in (doc.mime_type or "")):
+        await update.message.reply_text("⚠️ Sirf .txt file bhejo."); return
+
+    user_mode[uid] = "download"
+    msg = await update.message.reply_text("⏳ File read ho rahi hai...")
+    try:
+        tg_file = await ctx.bot.get_file(doc.file_id)
+        buf = io.BytesIO()
+        await tg_file.download_to_memory(buf)
+        content = buf.getvalue().decode("utf-8", errors="ignore")
+    except Exception as e:
+        await msg.edit_text(f"❌ File read error: {e}"); return
+
+    entries = parse_links_file(content)
+    if not entries:
+        await msg.edit_text("❌ Koi valid link nahi!\n\n*Format:*\n`Name:https://url.pdf`",
+                            parse_mode=ParseMode.MARKDOWN); return
+
+    user_sessions[uid] = {"entries":entries,"current_index":0,"waiting_start":True}
+    await msg.edit_text(
+        f"✅ *{len(entries)} PDF links mili!*\n\n📌 Konse number se start karna hai?\n_(1 se {len(entries)} tak)_",
+        parse_mode=ParseMode.MARKDOWN)
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  TEXT HANDLER
+# ══════════════════════════════════════════════════════════════════════════════
+async def handle_text(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    uid  = update.effective_user.id
+    if not is_authorized(uid): return
+    text = update.message.text.strip()
+    mode = user_mode.get(uid)
+    sess = user_sessions.get(uid, {})
+
+    # ── HTML: waiting for title ──
+    if mode == "quiz_html" and sess.get("waiting_title"):
+        sess["waiting_title"] = False
+        user_sessions[uid] = sess
+        mcq_buffer[uid] = {"title": text, "chunks": []}
+        await update.message.reply_text(
+            f"✅ Title: *{text}*\n\n"
+            f"Ab MCQ paste karo — *multiple messages* mein bhi kar sakte ho!\n"
+            f"Jab sab ho jaaye `/done` bhejo 👇",
+            parse_mode=ParseMode.MARKDOWN)
+        return
+
+    # ── HTML: collecting MCQ chunks ──
+    if mode == "quiz_html" and uid in mcq_buffer:
+        if "ANS:" in text.upper():
+            mcq_buffer[uid]["chunks"].append(text)
+            count = len(parse_questions("\n".join(mcq_buffer[uid]["chunks"])))
+            await update.message.reply_text(
+                f"➕ *{count} questions buffer mein!*\n\nAur paste karo ya `/done` bhejo.",
+                parse_mode=ParseMode.MARKDOWN)
+        else:
+            await update.message.reply_text("⚠️ Yeh MCQ format nahi lag raha. `ANS:` line chahiye.")
+        return
+
+    # ── Poll: collecting MCQ chunks ──
+    if mode == "quiz_poll":
+        if "ANS:" in text.upper():
+            if uid not in mcq_buffer:
+                mcq_buffer[uid] = {"title": "", "chunks": []}
+            mcq_buffer[uid]["chunks"].append(text)
+            count = len(parse_questions("\n".join(mcq_buffer[uid]["chunks"])))
+            await update.message.reply_text(
+                f"➕ *{count} questions buffer mein!*\n\nAur paste karo ya `/done` bhejo.",
+                parse_mode=ParseMode.MARKDOWN)
+        else:
+            await update.message.reply_text("⚠️ `ANS:` line nahi mili. Format check karo.")
+        return
+
+    # ── Download: number input ──
+    if not sess or not sess.get("waiting_start", False):
+        await update.message.reply_text("Pehle /start karo."); return
+
+    try:
+        num = int(text)
+        entries = sess["entries"]
+        if num<1 or num>len(entries):
+            await update.message.reply_text(f"❌ 1 se {len(entries)} ke beech number do."); return
+        start_idx = num-1
+        sess["current_index"] = start_idx
+        sess["waiting_start"] = False
+        user_sessions[uid] = sess
+        await update.message.reply_text(
+            f"🚀 *Download shuru!*\n📌 #{num} se #{len(entries)} tak\n📁 Total: {len(entries)-start_idx} files\n\n_/stop se band karo_",
+            parse_mode=ParseMode.MARKDOWN)
+        task = asyncio.create_task(run_downloads(uid,ctx,update.effective_chat.id,start_idx))
+        active_tasks[uid] = task
+    except ValueError:
+        await update.message.reply_text("❌ Sirf number type karo.")
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  QUIZ POLL
+# ══════════════════════════════════════════════════════════════════════════════
+async def handle_quiz_poll(update: Update, ctx: ContextTypes.DEFAULT_TYPE, text: str):
+    questions = parse_questions(text)
+    if not questions:
+        await update.message.reply_text("❌ MCQ parse nahi hua!\n\n*Format:*\n`Q1. Question`\n`(1) A`\n`ANS: 1`",
+                                        parse_mode=ParseMode.MARKDOWN); return
+    msg = await update.message.reply_text(f"✅ *{len(questions)} questions!*\n⏳ Polls ban rahe hain...",
+                                           parse_mode=ParseMode.MARKDOWN)
+    success = fail = 0
+    for idx,(q,opts,ans) in enumerate(questions):
+        try:
+            await ctx.bot.send_poll(
+                chat_id=update.effective_chat.id, question=q[:300],
+                options=[o[:100] for o in opts[:10]],
+                type=Poll.QUIZ, correct_option_id=ans, is_anonymous=False)
+            success += 1
+            if (idx+1)%5==0: await safe_edit(msg, f"⏳ *{idx+1}/{len(questions)} polls sent...*")
+            await asyncio.sleep(0.6)
+        except RetryAfter as e:
+            await asyncio.sleep(e.retry_after+1)
+            try:
+                await ctx.bot.send_poll(chat_id=update.effective_chat.id, question=q[:300],
+                    options=[o[:100] for o in opts[:10]], type=Poll.QUIZ,
+                    correct_option_id=ans, is_anonymous=False)
+                success += 1
+            except: fail += 1
+        except Exception as e:
+            logger.error(f"Poll Q{idx+1}: {e}"); fail += 1
+    result = f"✅ *{success} Quiz Polls sent!*"
+    if fail: result += f"\n⚠️ {fail} fail"
+    await safe_edit(msg, result)
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  QUIZ HTML
+# ══════════════════════════════════════════════════════════════════════════════
+async def handle_quiz_html(update: Update, ctx: ContextTypes.DEFAULT_TYPE, text: str, title: str):
+    questions = parse_questions(text)
+    if not questions:
+        await update.message.reply_text("❌ MCQ parse nahi hua!\n\n*Format:*\n`Q1. Question`\n`(1) A`\n`ANS: 1`",
+                                        parse_mode=ParseMode.MARKDOWN); return
+    msg = await update.message.reply_text(
+        f"⚙️ *{len(questions)} questions* se HTML ban rahi hai...", parse_mode=ParseMode.MARKDOWN)
+    try:
+        html_content = build_quiz_html(title, questions)
+        safe_name = re.sub(r'[^\w\s-]','',title).strip().replace(' ','-').lower()[:50]
+        filename  = f"quiz-{safe_name}.html"
+        filepath  = DOWNLOAD_DIR / filename
+        async with aiofiles.open(filepath,"w",encoding="utf-8") as f:
+            await f.write(html_content)
+        caption = (f"🌐 *{title}*\n\n📊 {len(questions)} Questions\n"
+                   f"💾 {fmt_size(filepath.stat().st_size)}\n\n"
+                   f"_Open in browser — Dark theme quiz!_ 🔥\n\nMade by {CREDIT_TAG}")
+        with open(filepath,"rb") as f:
+            await ctx.bot.send_document(chat_id=update.effective_chat.id, document=f,
+                                         filename=filename, caption=caption, parse_mode=ParseMode.MARKDOWN)
+        filepath.unlink(missing_ok=True)
+        await msg.delete()
+    except Exception as e:
+        logger.error(f"HTML gen: {e}")
+        await safe_edit(msg, f"❌ HTML error: `{str(e)[:100]}`")
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  STOP
+# ══════════════════════════════════════════════════════════════════════════════
+async def stop_cmd(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    uid = update.effective_user.id
+    if not is_authorized(uid): return
+    if uid in active_tasks:
+        active_tasks[uid].cancel()
+        await update.message.reply_text("⏹️ *Download stop.*\nResume ke liye /start karo.", parse_mode=ParseMode.MARKDOWN)
+    else:
+        await update.message.reply_text("⚠️ Koi active download nahi.")
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  DOWNLOAD LOOP
+# ══════════════════════════════════════════════════════════════════════════════
+async def run_downloads(uid, ctx, chat_id, start_idx):
+    sess    = user_sessions.get(uid,{})
+    entries = sess.get("entries",[])
+    total   = len(entries)
+    progress_msg = await safe_send(ctx.bot, chat_id, "📊 *Download shuru ho raha hai...*")
+    last_edit = [0.0]
+    for i in range(start_idx, total):
+        sess["current_index"] = i
+        rs = load_resume(); rs[str(uid)] = sess; save_resume(rs)
+        entry = entries[i]; name = entry["name"]; url = entry["url"]
+        safe_name = name.replace("/","-").replace("\\","-").replace(":","-")[:100]
+        filename = f"{safe_name}.pdf"; filepath = DOWNLOAD_DIR/filename
+        if filepath.exists(): filepath.unlink()
+
+        async def update_progress(downloaded,file_total,speed,_i=i,_name=name):
+            now=time.time()
+            if now-last_edit[0]<3: return
+            last_edit[0]=now
+            bar=progress_bar(downloaded,file_total)
+            pct=f"{downloaded*100//file_total}%" if file_total>0 else "..."
+            txt=(f"📥 *Downloading {_i+1}/{total}*\n📄 `{_name[:45]}`\n\n"
+                 f"`{bar}` {pct}\n💾 {fmt_size(downloaded)}"
+                 +(f" / {fmt_size(file_total)}" if file_total else "")
+                 +f"\n⚡ {fmt_speed(speed)}\n\n✅ Done: {_i-start_idx} | ⏳ Left: {total-_i-1}")
+            await safe_edit(progress_msg,txt)
+
+        try:
+            if progress_msg:
+                await safe_edit(progress_msg,f"📥 *Downloading {i+1}/{total}*\n`{name[:50]}`\n⏳ Please wait...")
+            ok = await download_file(url,filepath,update_progress,retries=4)
+            if not ok:
+                await safe_send(ctx.bot,chat_id,f"⚠️ *Skip #{i+1}*\n`{name[:50]}`"); continue
+            file_size=filepath.stat().st_size
+            if progress_msg:
+                await safe_edit(progress_msg,f"📤 *Uploading {i+1}/{total}*\n`{name[:50]}`\n💾 {fmt_size(file_size)}")
+            uploaded=await safe_send_doc(ctx.bot,chat_id,filepath,filename,f"📄 *{name}*\n\n📥 Download by {CREDIT_TAG}",retries=5)
+            if filepath.exists(): filepath.unlink()
+            if not uploaded:
+                await safe_send(ctx.bot,chat_id,f"⚠️ *Upload fail #{i+1}*\n`{name[:50]}`"); continue
+            if progress_msg:
+                await safe_edit(progress_msg,f"✅ *{i+1}/{total} done!*\n📄 `{name[:50]}`\n\n⏳ Next file...")
+            await asyncio.sleep(2)
+        except asyncio.CancelledError:
+            await safe_send(ctx.bot,chat_id,f"⏹️ *Stopped at #{i+1}*\nResume ke liye /start karo.")
+            if filepath.exists(): filepath.unlink(); return
+        except Exception as e:
+            logger.error(f"Error #{i+1}: {e}",exc_info=True)
+            await safe_send(ctx.bot,chat_id,f"⚠️ *Error #{i+1}* (skipping)\n`{str(e)[:100]}`")
+            if filepath.exists(): filepath.unlink()
+            await asyncio.sleep(3); continue
+
+    rs=load_resume(); rs.pop(str(uid),None); save_resume(rs)
+    active_tasks.pop(uid,None); user_sessions.pop(uid,None)
+    await safe_send(ctx.bot,chat_id,f"🎉 *Sab files complete!*\n\n✅ Total: {total-start_idx} files\n📥 Credit: `{CREDIT_TAG}`")
+
+# ─── HEALTH ───────────────────────────────────────────────────────────────────
+async def health_handler(request): return web.Response(text="OK",status=200)
+
+# ─── MAIN ────────────────────────────────────────────────────────────────────
