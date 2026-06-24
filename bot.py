@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 # ─── CONFIG ───────────────────────────────────────────────────────────────────
 BOT_TOKEN     = os.environ.get("BOT_TOKEN", "")
 OWNER_IDS     = [8226637107, 8356297447]
-ALLOWED_GROUPS = [-1002645387857, -1002991014888]  # 2 allowed groups
+ALLOWED_GROUPS = [-1002645387857, -1003126293720]  # 2 allowed groups
 FORCE_CHANNEL = "nexushubxd"                        # force join channel
 USERS_FILE    = Path("auth_users.json")
 DOWNLOAD_DIR  = Path("downloads")
