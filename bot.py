@@ -18,7 +18,7 @@ FORCE_CHANNEL = "nexushubxd"                        # force join channel
 USERS_FILE    = Path("auth_users.json")
 DOWNLOAD_DIR  = Path("downloads")
 RESUME_FILE   = Path("resume_state.json")
-CREDIT_TAG    = "@xdsonic"
+CREDIT_TAG    = "@Captainlevixd"
 DOWNLOAD_DIR.mkdir(exist_ok=True)
 
 # ─── AI NEET GENERATOR CONFIG ──────────────────────────────────────────────────
